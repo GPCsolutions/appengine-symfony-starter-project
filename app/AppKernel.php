@@ -54,12 +54,17 @@ class AppKernel extends Kernel
         stream_context_set_default($options);
 
         $this->gcsBucketName = getenv('GCS_BUCKET_NAME');
+
+        // enable stream wrapper for memcache
+        stream_wrapper_register('memcache', 'AppEngine\MemcacheStreamWrapper');
     }
 
     public function getCacheDir()
     {
         if ($this->gcsBucketName) {
             return sprintf('gs://%s/symfony/cache%s', $this->gcsBucketName, $this->getVersionSuffix());
+        } elseif ($this->memcacheExists()) {
+            return sprintf('memcache://symfony/cache%s', $this->getVersionSuffix());
         }
 
         return parent::getCacheDir();
@@ -69,6 +74,8 @@ class AppKernel extends Kernel
     {
         if ($this->gcsBucketName) {
             return sprintf('gs://%s/symfony/log', $this->gcsBucketName);
+        } elseif ($this->memcacheExists()) {
+            return 'memcache://symfony/log';
         }
 
         return parent::getLogDir();
@@ -113,5 +120,10 @@ class AppKernel extends Kernel
 
             return '-' . $major;
         }
+    }
+
+    private function memcacheExists()
+    {
+        return class_exists('Memcached');
     }
 }
