@@ -16,7 +16,8 @@ class MemcacheStreamWrapper
     private $key;
     private $position = 0;
     private $value;
-    public static $times = 0;
+
+    private $statcache = [];
 
     // Bit fields for the stat mode field
     const S_IFREG = 0100000;
@@ -47,16 +48,15 @@ class MemcacheStreamWrapper
 
     public function stream_open($path, $mode, $options, &$opened_path)
     {
-        if (false !== strpos($path, 'templates.php')) {
-            exit($path);
-        }
         $this->key = $this->createKeyFromPath($path);
         return true;
     }
 
     public function stream_read($count)
     {
-        $this->value = $this->memcache->get($this->key, null);
+        if (empty($this->value)) {
+            $this->value = $this->memcache->get($this->key, null);
+        }
         $ret = substr($this->value, $this->position, $count);
         $this->position += strlen($ret);
         return $ret;
@@ -64,6 +64,7 @@ class MemcacheStreamWrapper
 
     public function stream_write($data)
     {
+        $this->removeStatCache($this->key);
         $left = substr($this->value, 0, $this->position);
         $right = substr($this->value, $this->position + strlen($data));
         $this->value = $left . $data . $right;
@@ -171,13 +172,17 @@ class MemcacheStreamWrapper
 
     public function mkdir($path, $mode, $options)
     {
-        $this->memcache->set($path, '__DIR__');
+        $key = $this->createKeyFromPath($path);
+        $this->removeStatCache($key);
+        $this->memcache->set($key, '__DIR__');
         return true;
     }
 
     public function rmdir($path, $options)
     {
-        $this->memcache->delete($path);
+        $key = $this->createKeyFromPath($path);
+        $this->removeStatCache($key);
+        $this->memcache->delete($key);
         return true;
     }
 
@@ -189,9 +194,6 @@ class MemcacheStreamWrapper
     public function rename($from, $to)
     {
         @rename($from, $to);
-        // $value = $this->memcache->get($from);
-        // file_put_contents($to);
-        // $this->memcache->delete($from);
 
         return true;
     }
@@ -203,34 +205,40 @@ class MemcacheStreamWrapper
 
     public function url_stat($path, $flags)
     {
-        self::$times += 1;
         $key = $this->createKeyFromPath($path);
 
         // doesn't exist
-        if (!$value = $this->memcache->get($key)) {
-            return false;
+        if (!isset($this->statcache[$key])) {
+            if (!$value = $this->memcache->get($key)) {
+                return false;
+            }
+            $this->statcache[$key] = [
+                'mode' => ($value == '__DIR__' ? self::S_IFDIR : self::S_IFREG),
+                'size' => strlen($value),
+            ];
+            $this->value = $value;
         }
 
-        // determine mode
         $mode = 0;
-        if ($value == '__DIR__') {
-            $mode |= self::S_IFDIR;
-        } else {
-            $mode |= self::S_IFREG;
-        }
+        // determine mode
         $readable = self::S_IRUSR | self::S_IRGRP | self::S_IROTH;
         $writable = self::S_IWUSR | self::S_IWGRP | self::S_IWOTH;
-        $mode |= $readable | $writable;
+        $mode |= $readable | $writable | $this->statcache[$key]['mode'];
 
         $stats['uid'] = getmyuid();
         $stats['gid'] = getmyuid();
         $stats['atime'] = time();
         $stats['mtime'] = time();
         $stats['ctime'] = time();
-        $stats['size'] = strlen($value);
+        $stats['size'] = $this->statcache[$key]['size'];
         $stats['mode'] = $mode;
 
         return $this->createStatArray($stats);
+    }
+
+    private function removeStatCache($key)
+    {
+        unset($this->statcache[$key]);
     }
 
     private function createStatArray($stat_args)

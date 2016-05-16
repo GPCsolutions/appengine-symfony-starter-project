@@ -56,13 +56,15 @@ class AppKernel extends Kernel
         $this->gcsBucketName = getenv('GCS_BUCKET_NAME');
 
         // enable stream wrapper for memcache
-        stream_wrapper_register('memcache', 'AppEngine\MemcacheStreamWrapper');
+        if (!in_array('memcache', stream_get_wrappers())) {
+            stream_wrapper_register('memcache', 'AppEngine\MemcacheStreamWrapper');
+        }
     }
 
     public function getCacheDir()
     {
-        if ($this->gcsBucketName) {
-            return sprintf('gs://%s/symfony/cache%s', $this->gcsBucketName, $this->getVersionSuffix());
+        if ($bucketName = $this->getGcsBucketName()) {
+            return sprintf('gs://%s/symfony/cache%s', $bucketName, $this->getVersionSuffix());
         } elseif ($this->memcacheExists()) {
             return sprintf('memcache://symfony/cache%s', $this->getVersionSuffix());
         }
@@ -72,8 +74,8 @@ class AppKernel extends Kernel
 
     public function getLogDir()
     {
-        if ($this->gcsBucketName) {
-            return sprintf('gs://%s/symfony/log', $this->gcsBucketName);
+        if ($bucketName = $this->getGcsBucketName()) {
+            return sprintf('gs://%s/symfony/log', $bucketName);
         } elseif ($this->memcacheExists()) {
             return 'memcache://symfony/log';
         }
@@ -119,6 +121,13 @@ class AppKernel extends Kernel
             list($major, $minor) = explode('.', $version);
 
             return '-' . $major;
+        }
+    }
+
+    private function getGcsBucketName()
+    {
+        if ($this->gcsBucketName && $this->gcsBucketName != 'YOUR_GCS_BUCKET_NAME') {
+            return $this->gcsBucketName;
         }
     }
 
