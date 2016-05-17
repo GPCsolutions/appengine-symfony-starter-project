@@ -40,7 +40,7 @@ class AppKernel extends Kernel
 
         // Symfony console requires timezone to be set manually.
         if (!ini_get('date.timezone')) {
-          date_default_timezone_set('UTC');
+            date_default_timezone_set('UTC');
         }
 
         // Enable optimistic caching for GCS.
